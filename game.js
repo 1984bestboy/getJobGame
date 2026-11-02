@@ -329,6 +329,292 @@ const cacheLevels = [
   }
 ];
 
+function dig(prompt, choices) {
+  return { prompt, choices };
+}
+
+function line(type, text, feedback, followOrExtra, extra) {
+  const isFollow = followOrExtra && followOrExtra.prompt;
+  const follow = isFollow ? followOrExtra : null;
+  const more = isFollow ? extra : followOrExtra;
+  return Object.assign({ type, text, feedback }, follow ? { follow } : {}, more || {});
+}
+
+function bindFollows(levels, table) {
+  levels.forEach((level) => {
+    const rows = table[level.id];
+    if (!rows) return;
+    rows.forEach((follow, index) => {
+      if (follow && level.choices[index]) level.choices[index].follow = follow;
+    });
+  });
+}
+
+bindFollows(storyLevels, {
+  1: [
+    dig("主管問：那你今晚改完，明天誰驗收？", [
+      line("good", "停下來。先寫回歸範圍，不把驗收也收成自己的夜班。", "你把被自己填滿的時程收回來了。",
+        dig("主管說：高層明天要一個日期。", [
+          line("good", "給階段日期，不給全部換完的日期。", "日期對得上範圍，沒有再把整次升級包下來。"),
+          line("weak", "先報下週一，再私下補風險。", "口頭日期又跑在書面範圍前面。")
+        ])),
+      line("absorb", "我改完也自己驗完再上。", "驗收一起包下來，明天仍然沒有第二個人。")
+    ]),
+    dig("面試官接話：分階段的第一段，你實際做了什麼？", [
+      line("good", "先讓建置從失敗回到可重複，再移命名空間。不講產品模組。", "追問仍停在版本、階段與回歸範圍。",
+        dig("那回歸範圍誰確認？", [
+          line("good", "相容性與關鍵路徑寫成書面，由規格負責人確認。", "範圍有人簽字，不是自己一人宣布完成。"),
+          line("absorb", "我自己看過就算回歸完成。", "範圍又回到同一個人。")
+        ])),
+      line("leak", "補上某個內部服務與資料表，讓第一段聽起來比較具體。", "追問一開，產品細節就出去了。", { clear: ["hasStory"] })
+    ]),
+    dig("主管問：這次完全不做，建置失敗要放到什麼時候？", [
+      line("good", "大版本這次不做，但先把建置修到可重複，並寫下下一步。", "你沒有升級故事，但留下了可接的下一步。"),
+      line("weak", "維持現狀，沒有下一步。", "拒絕之後仍然沒有路徑。")
+    ])
+  ],
+  2: [
+    dig("隔天對方問：你昨晚查了什麼？", [
+      line("good", "補上檢查順序、恢復時間、交接對象，並補優先順序的書面。", "夜裡沒留下的順序，白天補上了。"),
+      line("absorb", "叫他們看紀錄，步驟還是只在我這裡。", "追問之後，交接仍然沒有發生。")
+    ]),
+    dig("對方說：書面確認等明天，你現在就先做完。", [
+      line("good", "先做檢查與交接。哪項工作順延，仍等書面。", "你沒有為了今晚把優先順序也決定掉。",
+        dig("交接寫到哪裡就夠？", [
+          line("good", "順序、時間、下一步誰看。不寫內部主機與客戶代號。", "下一班接得上，識別沒有跟著出去。"),
+          line("leak", "把主機名稱寫進交接，下一班比較快。", "交接變成另一份不該公開的名單。")
+        ])),
+      line("absorb", "那我今晚全部做完，明天再補書面。", "書面被你自己的通宵取代了。")
+    ]),
+    dig("主管說：那些代號已經在群組裡了，要不要收回？", [
+      line("good", "說明哪些識別不該出現，請限制這則訊息，之後只留檢查順序。", "你把已經出去的識別當成事故，不是加速手段。"),
+      line("leak", "既然出了就繼續貼，比較快。", "追問之後，識別繼續擴散。")
+    ])
+  ],
+  3: [
+    dig("高層追問：這個日期是規格簽了，還是你估的？", [
+      line("good", "收回日期。寫明缺規格負責人、欄位、錯誤碼與驗收。", "追問把你估的日期和已簽的規格分開了。"),
+      line("weak", "說日期是技術估計，商業範圍我先補。", "範圍仍由你補上。")
+    ]),
+    dig("對方說：你把缺的欄位列出來，我們就當規格用。", [
+      line("good", "清單是開工條件，不是規格。時程仍等負責人簽。", "你沒有讓一份缺口清單變成契約。",
+        dig("如果負責人這週不簽呢？", [
+          line("good", "沒有簽核就沒有對上線的日期。可以做不依賴契約的準備。", "等待被說清楚，日期沒有偷偷填上。"),
+          line("absorb", "先照我列的做，簽核補在上線後。", "你又把缺席的簽核補上了。")
+        ])),
+      line("absorb", "那這份清單就是規格，我依它承諾日期。", "開工條件被你說成已簽的契約。")
+    ]),
+    dig("面試官問：你剛說的內部路徑，可以寫進履歷嗎？", [
+      line("good", "不可以。對外只留「規格未簽就不承諾日期」。", "追問把內部路徑收回來了。"),
+      line("leak", "可以，這樣比較具體。", "同一條路徑又被你送到另一個場合。")
+    ])
+  ],
+  4: [
+    dig("面試官說：再具體一點，改了哪些模組？", [
+      line("good", "只補階段與回歸範圍，不講模組、客戶、內部介面。", "具體停在可核對的事實。",
+        dig("結果用什麼衡量？", [
+          line("good", "建置可重複，回歸範圍有書面。不借用別人的營運數字。", "結果仍是你留得下的事實。"),
+          line("weak", "說上線很順利，沒有可核對的範圍。", "九十秒最後變成一句評價。", { clear: ["held4"] })
+        ])),
+      line("leak", "點名模組與內部介面。", "追問要的具體，被你答成不該帶走的細節。", { clear: ["held4"] })
+    ]),
+    dig("面試官說：那些內部介面怎麼呼叫？", [
+      line("good", "停下。改回版本、階段與回歸範圍。", "你把已經偏掉的故事拉回可說的事實。"),
+      line("leak", "繼續講呼叫方式與客戶場域。", "第二層仍在產品細節裡。")
+    ]),
+    dig("面試官說：九十秒裡我需要一件事實。", [
+      line("good", "改講版本、階段與回歸範圍。", "態度收成可核對的事實。", { need: "hasStory", set: ["held4"], locked: "沒有留下遷移事實，這層也補不出版本與階段。" }),
+      line("weak", "再說一次你很會解決問題。", "追問要事實，你又給了態度。")
+    ])
+  ],
+  5: [
+    dig("對方只回答：框架我們用得算新。輪替呢？", [
+      line("good", "再問一次：誰簽規格、值班是否輪替、加班是否另計。", "技術答案沒有把篩選問題帶過。",
+        dig("對方說：值班是自願，加班看專案。", [
+          line("good", "把這兩句記成尚未有輪替與另計，不在面試裡答應補位。", "你聽到了沒有制度，也沒有當場補上。"),
+          line("absorb", "說自願我可以先接下。", "追問最後，界線還是交出去了。", { clear: ["held5"] })
+        ])),
+      line("weak", "聽到框架就說可以配合。", "你要問的三件事情被一個技術答案蓋過去。", { clear: ["held5"] })
+    ]),
+    dig("你還想問技術以外的事嗎？", [
+      line("good", "補問簽核、輪替，以及加班是否另計。", "技術問題之後，你把篩選補上了。", { set: ["held5"] }),
+      line("weak", "再問一個雲端服務的名稱。", "追問仍停在工具。")
+    ]),
+    dig("對方說：太好了，那值班從你開始。", [
+      line("good", "收回。值班要有輪替與書面，規格未定不先補。", "示好的那句被你收回來了。"),
+      line("absorb", "答應下週就排班。", "追問把口頭示好變成了開始日期。")
+    ])
+  ]
+});
+
+bindFollows(designLevels, {
+  1: [
+    dig("面試官說：這些方塊各自解決什麼現在的問題？", [
+      line("good", "收回圖。先寫做與不做，以及哪個指標讓步。", "方塊先讓位給範圍。", { set: ["scoped"] }),
+      line("absorb", "每個方塊都先留著，以後用得到。", "追問沒有讓圖變小。")
+    ]),
+    dig("延遲和一致性，你讓哪一個？", [
+      line("good", "借還以資料庫提交為準。逾期提醒可以晚一分鐘，不能為了快把帳記錯。", "你指出了哪一個可以讓。",
+        dig("跨館即時同步為什麼不做？", [
+          line("good", "每天幾千筆，即時同步的維運比漏一次同步更大。", "不做的理由是現在的量與人力。"),
+          line("absorb", "那還是做，免得以後重寫。", "剛剛劃出的範圍又被加回來。", { clear: ["scoped"] })
+        ])),
+      line("weak", "兩個都要最好。", "追問仍沒有取捨。", { clear: ["scoped"] })
+    ]),
+    dig("雲與框架先放下。這個系統第一版做什麼？", [
+      line("good", "借還與逾期提醒。不做推薦，也不做跨館即時同步。", "工具問題被你拉回範圍。", { set: ["scoped"] }),
+      line("weak", "看他們現在用什麼，我就配合。", "第一版仍然是空的。")
+    ])
+  ],
+  2: [
+    dig("十倍讀取是哪裡來的？", [
+      line("good", "是假設，用來判斷單庫夠不夠。上線後用真實比例改。", "估計被你標成假設，不是事實。",
+        dig("五年後如果變成一百倍呢？", [
+          line("good", "現在不拆。介面留可改，量真的上去再加讀取路徑。", "未來的倍數沒有變成今天的架構。"),
+          line("absorb", "現在就按一百倍設計。", "假設的增長被提前做成系統。", { clear: ["estimated"] })
+        ])),
+      line("weak", "就當大家都這樣估。", "數字沒有來源，也沒有修訂方式。")
+    ]),
+    dig("你準備分多少庫？依據是哪一個數字？", [
+      line("good", "說不出數字就不分。回到每天幾千筆，讀取先按十倍。", "拆分被一個數量級擋下來。", { set: ["estimated"] }),
+      line("absorb", "先分四庫，數字以後補。", "庫的數量仍比筆數先出現。")
+    ]),
+    dig("給我一個每天的筆數，就算是假設。", [
+      line("good", "每天幾千筆寫入，讀取先按十倍。", "追問逼出了數量級。", { set: ["estimated"] }),
+      line("weak", "還是只能說不小。", "第二問仍然沒有數字。")
+    ])
+  ],
+  3: [
+    dig("樂觀鎖衝突時，你回什麼？", [
+      line("good", "回可重試的衝突，不覆蓋別人的借還。", "鎖的失敗有一個對外說得清的結果。",
+        dig("為什麼主鍵不用難猜的隨機字串？", [
+          line("good", "這個量級用可排序整數更好寫入。需要不可猜測再換。", "主鍵是取捨，不是同時做兩套。"),
+          line("weak", "兩個都做，比較安全。", "追問又把兩套主鍵都留了下來。")
+        ])),
+      line("leak", "把內部表名放進錯誤訊息。", "衝突回應帶出了內部名稱。", { clear: ["modeled"] })
+    ]),
+    dig("這些內部路徑，對外文件還留著嗎？", [
+      line("good", "拿掉。契約只留借、還、查近況。", "追問把內部路徑從契約拿掉了。"),
+      line("leak", "留著，對方對得到現有系統。", "對外文件仍指向內部。")
+    ]),
+    dig("十二個服務裡，借一本書要經過幾個？", [
+      line("good", "先收成一個服務、三個介面。", "服務數量被一筆借閱收斂了。", { set: ["modeled"] }),
+      line("weak", "以後再畫資料流。", "追問之後仍然沒有路徑。")
+    ])
+  ],
+  4: [
+    dig("快取你說以後再加。什麼數字會讓你真的加？", [
+      line("good", "讀取延遲或資料庫負載過了這組人養得起的線，再加。現在不進主路徑。", "以後再加有一個條件，不是口頭保留。",
+        dig("負載均衡後面為什麼是無狀態？", [
+          line("good", "借還的事實在資料庫。服務重啟不帶走唯一狀態。", "無狀態對應的是事實放在哪裡。"),
+          line("weak", "狀態放進程裡比較快。", "快取式的快，把唯一狀態放進了進程。", { clear: ["flowed"] })
+        ])),
+      line("absorb", "還是畫上去，開開關就好。", "註明以後再加，又被畫進第一版。", { clear: ["flowed"] })
+    ]),
+    dig("這三個方塊，拿掉一個，明天還能借書嗎？", [
+      line("good", "能。留下讀者、負載均衡、無狀態服務、資料庫。", "拿掉之後，主路徑還在。", { set: ["flowed"] }),
+      line("absorb", "不能，三個都是第一天要的。", "追問沒有讓任何方塊離開第一版。")
+    ]),
+    dig("用一句話說，一筆借閱從哪裡到哪裡。", [
+      line("good", "讀者到負載均衡，到無狀態服務，到資料庫。", "圖被你收成一條路徑。", { set: ["flowed"] }),
+      line("weak", "看圖上的箭頭。", "追問要的那一句還沒有。")
+    ])
+  ],
+  5: [
+    dig("逾期提醒如果送出兩次呢？", [
+      line("good", "同一筆在窗口內只通知一次，失敗可以再試。", "重試沒有變成重複通知。",
+        dig("什麼情況你會把訊息佇列加回來？", [
+          line("good", "寫入慢到單庫與索引不夠，而且團隊養得起那個元件。現在不是。", "加回來有條件，不是預先畫上。"),
+          line("absorb", "設計圖先畫上，比較完整。", "條件被完整性取代了。", { clear: ["traded"] })
+        ])),
+      line("absorb", "送兩次，讓對方一定看到。", "提醒的失敗被你用重複送出來補。", { clear: ["traded"] })
+    ]),
+    dig("今天的瓶頸是哪一個數字？", [
+      line("good", "每天幾千筆，瓶頸還不在佇列。回到單庫、分區與索引。", "未來的架構被今天的筆數擋下。", { set: ["traded"] }),
+      line("absorb", "瓶頸是以後的百萬。", "數字仍在現在還不存在的規模上。")
+    ]),
+    dig("三個指標你願意讓哪一個？", [
+      line("good", "逾期提醒的延遲可以讓。借還的提交不可以讓。", "追問終於有一個讓步。", { set: ["traded"] }),
+      line("weak", "看預算，三個都盡量。", "三個指標仍一起拉滿。")
+    ])
+  ]
+});
+
+bindFollows(cacheLevels, {
+  1: [
+    dig("兩個寫入只有一個成功時，讀者看到什麼？", [
+      line("good", "可能看到舊值。所以不更新快取，資料庫提交後再刪除。", "失敗的那一次被你說成舊值，不是再蓋一次。", { set: ["aside"] }),
+      line("absorb", "再寫一次快取，把新值蓋回去。", "追問之後仍是兩次寫入在競速。")
+    ]),
+    dig("提交後再刪，還有沒有機會留下舊值？", [
+      line("good", "有。刪除可能失敗，未命中也可能讀到還沒跟上的從庫。", "你把日常會發生的兩件事說在理論交錯前面。",
+        dig("那條很窄的讀寫交錯，你怎麼帶過？", [
+          line("good", "點到即可。時間留給刪除失敗與從庫回填。", "窄的那條沒有佔掉回答。"),
+          line("weak", "把時間花在證明那條交錯不會發生。", "常見的失敗被你放掉了。")
+        ])),
+      line("weak", "幾乎沒有，因為寫入比讀取慢。", "你把少見的理由說成不會發生。")
+    ]),
+    dig("這段等待要蓋過什麼？", [
+      line("good", "蓋不過主從延遲與停頓。改成提交後刪除。", "經驗值被你收回了。", { set: ["aside"] }),
+      line("weak", "抓個經驗值，例如五百毫秒。", "第二個數字仍然沒有上界。")
+    ])
+  ],
+  2: [
+    dig("新加一個寫入點時，誰保證它有重試？", [
+      line("good", "不靠記得。提交後的日誌裡有這筆變更，消費者負責刪除。", "新的寫入點不必再接一次重試。", { set: ["relay"] }),
+      line("absorb", "靠檢查清單，上線前看過。", "保證仍靠人記得。")
+    ]),
+    dig("消費者為什麼只刪除，不寫入新值？", [
+      line("good", "刪除可以重複做。寫入新值會在事件亂序時把舊值蓋回去。", "你把亂序說成不寫入新值的理由。",
+        dig("未命中為什麼不讀從庫？", [
+          line("good", "從庫可能還沒有這次提交。舊值再填回，會留到過期。", "回填的來源被你限定在主庫。"),
+          line("weak", "從庫可以分攤讀取，這比較重要。", "分攤讀取把舊值又填了回去。", { clear: ["relay"] })
+        ])),
+      line("leak", "順便把新值寫進快取，少一次回源。", "消費者又變成另一次更新快取。", { clear: ["relay"] })
+    ]),
+    dig("如果下一次更新要等一天呢？", [
+      line("good", "舊值會留一天。改由日誌變更重試刪除。", "等待下一次更新被你換成可靠刪除。", { set: ["relay"] }),
+      line("weak", "閱讀數舊一天可以接受，所以不用補。", "可接受的延遲被你說成不必刪除。")
+    ])
+  ],
+  3: [
+    dig("過期設太短會怎樣？", [
+      line("good", "讀取打回資料庫。過期只是髒值的終點，不是一致性本身。", "短過期的代價被你說出來了。",
+        dig("刪除已經會成功，為什麼還要過期？", [
+          line("good", "日誌、消費者、網路都會停。沒有過期，髒值沒有終點。", "過期被放在刪除失敗之後，不是拿來取代刪除。"),
+          line("absorb", "那就把過期拿掉，少一次回收。", "終點被你拿掉了。", { clear: ["ttl"] })
+        ])),
+      line("weak", "設短一點就比較接近強一致。", "短過期又被說成強一致。", { clear: ["ttl"] })
+    ]),
+    dig("消費者停了一小時，這把鍵會怎樣？", [
+      line("good", "沒有過期就一直是舊的。補上過期當終點。", "停擺的那一小時有了終點。", { set: ["ttl"] }),
+      line("absorb", "消費者恢復後會刪，期間舊的也可以。", "期間被你說成不必有終點。")
+    ]),
+    dig("這一秒裡，餘額可以是舊的嗎？", [
+      line("good", "不可以。短過期不是強一致。閱讀數才用過期當終點。", "你把閱讀數的終點和餘額分開了。", { set: ["ttl"] }),
+      line("weak", "一秒可以當作夠即時。", "餘額仍被一個短窗口蓋過去。")
+    ])
+  ],
+  4: [
+    dig("庫存扣減呢？", [
+      line("good", "跟餘額一樣，不進快取。用資料庫的鎖或版本。", "另一個不能舊的數字，你用同一條界線擋下。",
+        dig("版本號能取代刪除失敗的那段窗口嗎？", [
+          line("good", "不能。它只能拒絕較舊的覆寫。刪除沒發生時，舊值還在。", "版本號的界限被你說清了。"),
+          line("weak", "能。比較新的版本蓋過去就好。", "刪除失敗的窗口被你說成版本能補。", { clear: ["direct"] })
+        ])),
+      line("absorb", "庫存讀很多，還是放快取，再加分散式鎖。", "不能舊的數字又進了快取。", { clear: ["direct"] })
+    ]),
+    dig("鎖住之後，快取還省到什麼？", [
+      line("good", "省不到併發。餘額改回資料庫。", "串行化之後，快取這一層被你拿掉了。", { set: ["direct"] }),
+      line("absorb", "還是少打一點資料庫。", "鎖與快取仍疊在一起。")
+    ]),
+    dig("幾百毫秒內如果扣了兩次款呢？", [
+      line("good", "第二次可能看到舊餘額。所以餘額不進快取。", "短窗口裡的兩次扣款被你當成不能接受。", { set: ["direct"] }),
+      line("weak", "窗口很短，實務上可以。", "兩次扣款仍落在舊餘額上。")
+    ])
+  ]
+});
+
 const state = {
   mode: "story",
   lives: 3,
@@ -377,7 +663,7 @@ function header() {
     <div class="top">
       <div class="mark">${mark()}</div>
       <div class="stats">
-        <span>第 ${state.index + 1} / ${deck().length} 關 · ${level.title}</span>
+        <span>第 ${state.index + 1} / ${deck().length} 關 · ${level.title}${state.depth ? ` · 追問 ${state.depth}` : ""}</span>
         <span class="lives" aria-label="生命 ${state.lives}">${livesText()}</span>
       </div>
     </div>`;
@@ -491,21 +777,24 @@ function render() {
       <article class="card">
         <div class="kicker">SIDE PROJECT</div>
         <h1>九十秒</h1>
-        <p class="sub">三種面試練習。生命 3。連續兩次失守即結束。</p>
+        <p class="sub">選擇題可離線。AI 面試用你自己的 Gemini 金鑰，依原話追問。</p>
         <div class="choices">
           <button class="primary" id="start">九十秒：職場與故事</button>
           <button id="design">四十五分：系統設計</button>
           <button id="cache">快取：雙寫一致性</button>
+          <button id="ai">AI 面試：出題、檢核、再追問</button>
         </div>
         <ul class="rules">
           <li>九十秒：分階段遷移、留下交接、規格不到位就不承諾日期。通關要有故事、面試界線、反問界線。</li>
           <li>四十五分：先問範圍與量級，再畫一條路徑，最後講為什麼現在不堆架構。題目是圖書館借還。</li>
           <li>快取：提交後刪除，用日誌變更重試，未命中讀主庫，過期兜底。餘額不進快取。</li>
+          <li>每一題答完會再追問。守住的回答再挖一層，含糊或失守停在一層。下一題由上一題的回答決定。</li>
         </ul>
       </article>`;
     document.getElementById("start").onclick = () => begin("story");
     document.getElementById("design").onclick = () => begin("design");
     document.getElementById("cache").onclick = () => begin("cache");
+    document.getElementById("ai").onclick = () => startAi();
     return;
   }
 
@@ -539,7 +828,7 @@ function render() {
     return;
   }
 
-  const level = deck()[state.index];
+  const level = state.beat || deck()[state.index];
   if (state.phase === "feedback") {
     const tag = state.last.type === "good" ? "good" : state.last.type === "weak" ? "weak" : "bad";
     const label = state.last.type === "good" ? "留下" : state.last.type === "weak" ? "含糊" : "失守";
@@ -556,6 +845,8 @@ function render() {
         state.phase = "end";
       } else {
         state.index += 1;
+        state.depth = 0;
+        state.beat = null;
         state.phase = "level";
       }
       render();
@@ -570,6 +861,7 @@ function render() {
         type: "weak",
         text: choice.locked,
         set: [],
+        follow: null,
         feedback: "沒有留下遷移事實，這則九十秒編不出可核對的版本與階段。"
       };
     }
@@ -579,6 +871,7 @@ function render() {
   app.innerHTML = `
     ${header()}
     <article class="card">
+      ${state.depth ? `<div class="kicker">追問 ${state.depth}</div>` : ""}
       <p class="prompt">${level.prompt}</p>
       <div class="choices">
         ${choices.map((choice, i) => `<button data-i="${i}">${choice.text}</button>`).join("")}
@@ -592,6 +885,7 @@ function render() {
 
 function choose(choice) {
   if (choice.set) choice.set.forEach((key) => { state[key] = true; });
+  if (choice.clear) choice.clear.forEach((key) => { state[key] = false; });
   if (choice.type === "good") state.streak = 0;
   if (choice.type === "absorb" || choice.type === "leak") {
     state.lives -= 1;
@@ -602,10 +896,15 @@ function choose(choice) {
     state.streak = 0;
   }
   state.last = choice;
-  state.history.push({ title: deck()[state.index].title, type: choice.type });
+  const base = deck()[state.index].title;
+  state.history.push({ title: state.depth ? `${base}追問${state.depth}` : base, type: choice.type });
   if (state.streak >= 2 || state.lives <= 0) {
     state.ending = "fail";
     state.phase = "end";
+  } else if (choice.follow && state.depth < 2) {
+    state.beat = choice.follow;
+    state.depth += 1;
+    state.phase = "level";
   } else {
     state.phase = "feedback";
   }
@@ -630,6 +929,8 @@ function begin(mode) {
     ttl: false,
     direct: false,
     index: 0,
+    depth: 0,
+    beat: null,
     phase: "level",
     last: null,
     ending: "",
@@ -637,5 +938,10 @@ function begin(mode) {
   });
   render();
 }
+
+window.returnToTitle = () => {
+  state.phase = "title";
+  render();
+};
 
 render();

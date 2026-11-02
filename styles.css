@@ -137,3 +137,18 @@ button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+textarea, input[type="password"] {
+  font: inherit;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  color: var(--ink);
+}
+
+textarea { min-height: 120px; line-height: 1.55; }
+
+.note { color: var(--muted); font-size: 14px; line-height: 1.6; }
+.err { color: var(--bad); line-height: 1.55; }
