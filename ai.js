@@ -9,6 +9,7 @@ const aiRubric = `你是面試官，只用繁體中文。玩家用自己的話�
 - story：遷移只留版本、階段與回歸範圍；交接不留內部識別；規格沒簽就不承諾日期；反問簽核、輪替、加班是否另計。
 - design：全市圖書館借還，每天約幾千筆。先寫做與不做，再容量，再三個介面，再一條到資料庫的路徑，再說明為什麼現在不上分散式。
 - cache：文章閱讀數。資料庫提交後刪除快取，不更新快取值。刪除失敗靠日誌變更重試，消費者只刪除。未命中讀主庫。每把鍵有過期。餘額不進快取。
+- ship：舊支付還在扣款。先寫不能扣錯的約定，逾時走對帳且重試沿用同一把冪等鍵。改表先可空再補再限制，索引用並行建立。同步用同一筆交易的待送事件。切換時一筆只有一個所有者。會上的沒問題不是同意。
 
 verdict 只能是 good、weak、absorb、leak。
 good 是守住界線。weak 是含糊。absorb 是一人全包或還沒估量就堆架構。leak 是說出不該帶走的細節。
@@ -103,10 +104,11 @@ function aiRender() {
           <button data-track="story" class="${ai.track === "story" ? "primary" : ""}">九十秒</button>
           <button data-track="design" class="${ai.track === "design" ? "primary" : ""}">四十五分</button>
           <button data-track="cache" class="${ai.track === "cache" ? "primary" : ""}">快取</button>
+          <button data-track="ship" class="${ai.track === "ship" ? "primary" : ""}">上線</button>
         </div>
         <p class="note">Gemini API 金鑰。不會寫進檔案。</p>
         <input id="gemKey" type="password" autocomplete="off" value="">
-        <p class="err" id="aiError">${ai.error}</p>
+        <p class="err" id="aiError"></p>
         <div class="choices">
           <button class="primary" id="aiGo">${ai.busy ? "出題中" : "開始"}</button>
           <button id="aiBack">回選擇題</button>
@@ -122,6 +124,7 @@ function aiRender() {
     });
     document.getElementById("aiBack").onclick = () => window.returnToTitle();
     document.getElementById("aiGo").onclick = () => aiBegin();
+    document.getElementById("aiError").textContent = ai.error;
     return;
   }
 
@@ -131,17 +134,20 @@ function aiRender() {
       <article class="card">
         <div class="kicker">結局</div>
         <h1>${failed ? "界線失守" : "這輪守住了"}</h1>
-        <p class="prompt">${ai.feedback || "問答結束。"}</p>
+        <p class="prompt" id="aiEnd"></p>
         <p class="note">生命 ${aiLives()} · ${ai.turns} 答</p>
         <button class="primary" id="aiAgain">再一輪</button>
         <button id="aiBack">回選擇題</button>
       </article>`;
     document.getElementById("aiAgain").onclick = () => startAi();
     document.getElementById("aiBack").onclick = () => window.returnToTitle();
+    document.getElementById("aiEnd").textContent = ai.feedback || "問答結束。";
     return;
   }
 
-  const tag = ai.verdict === "good" ? "留下" : ai.verdict === "weak" ? "含糊" : ai.verdict === "leak" || ai.verdict === "absorb" ? "失守" : "";
+  const known = { good: "留下", weak: "含糊", absorb: "失守", leak: "失守" };
+  const tag = known[ai.verdict] || "";
+  const tagClass = ai.verdict === "good" ? "good" : ai.verdict === "weak" ? "weak" : tag ? "bad" : "";
   app.innerHTML = `
     <div class="top">
       <div class="mark">AI 面試</div>
@@ -151,13 +157,16 @@ function aiRender() {
       </div>
     </div>
     <article class="card">
-      ${tag ? `<div class="tag ${ai.verdict === "good" ? "good" : ai.verdict === "weak" ? "weak" : "bad"}">${tag}</div>` : ""}
-      ${ai.feedback ? `<p class="feedback">${ai.feedback}</p>` : ""}
-      <p class="prompt">${ai.question}</p>
+      ${tag ? `<div class="tag ${tagClass}">${tag}</div>` : ""}
+      <p class="feedback" id="aiFeedback"></p>
+      <p class="prompt" id="aiQuestion"></p>
       <textarea id="answer" placeholder="用自己的話回答"></textarea>
-      <p class="err" id="aiError">${ai.error}</p>
+      <p class="err" id="aiError"></p>
       <button class="primary" id="aiSend">${ai.busy ? "檢核中" : "送出"}</button>
     </article>`;
+  document.getElementById("aiFeedback").textContent = ai.feedback;
+  document.getElementById("aiQuestion").textContent = ai.question;
+  document.getElementById("aiError").textContent = ai.error;
   document.getElementById("aiSend").onclick = () => aiAnswer();
 }
 

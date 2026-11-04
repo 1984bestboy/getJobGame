@@ -615,6 +615,217 @@ bindFollows(cacheLevels, {
   ]
 });
 
+const shipLevels = [
+  {
+    id: 1,
+    title: "約定",
+    prompt: "面試官擦掉半張圖。舊支付還在扣款。六個人、三十天，不能停機，也不能扣兩次。你從哪裡開始？",
+    choices: [
+      {
+        type: "absorb",
+        text: "先改識別碼。今晚就把新欄位設成必填。",
+        feedback: "舊列還沒有這欄。必填會讓正在跑的寫入失敗。"
+      },
+      {
+        type: "good",
+        set: ["invariants"],
+        text: "先寫不能打破的約定：一筆邏輯支付只對一個穩定識別碼，重試不能再扣，結果不明走對帳。",
+        feedback: "上線順序排在業務契約後面。圖先讓位給不能扣錯的三句。"
+      },
+      {
+        type: "weak",
+        text: "先把新架構圖再畫完整。",
+        feedback: "圖更完整了。正在處理的那一筆扣款還沒有主人。"
+      }
+    ]
+  },
+  {
+    id: 2,
+    title: "擴欄",
+    prompt: "識別碼要改，舊資料沒有這欄。你怎麼改表？",
+    choices: [
+      {
+        type: "good",
+        set: ["expanded"],
+        text: "先加可空欄，程式同時讀新舊，補歷史，再加限制，最後才拿掉舊欄。索引用並行建立，並限制等鎖時間。",
+        feedback: "變更可以重跑，舊程式在限制加上之前仍讀得動。"
+      },
+      {
+        type: "absorb",
+        text: "直接加必填和唯一索引，一次切過去。",
+        feedback: "空值與建索引的鎖會撞上正在寫入的支付。"
+      },
+      {
+        type: "weak",
+        text: "約一個停機窗，把表鎖住改完。",
+        feedback: "停機仍有已送出、結果還沒回來的扣款。鎖表沒有回答它們。"
+      }
+    ]
+  },
+  {
+    id: 3,
+    title: "雙寫",
+    prompt: "新舊系統都要知道這筆支付。你怎麼同步？",
+    choices: [
+      {
+        type: "good",
+        set: ["outbox"],
+        text: "同一筆資料庫交易寫下支付與待送事件，再由轉送程式送到佇列。消費端用事件識別碼去掉重複。",
+        feedback: "提交成功就留有待送紀錄。重送是預期，所以消費端要認得同一筆。"
+      },
+      {
+        type: "absorb",
+        text: "資料庫提交後立刻送佇列，失敗再重試。",
+        feedback: "兩次寫入沒有原子性。提交之後、送出之前的失敗會讓下游不知道這筆支付。"
+      },
+      {
+        type: "leak",
+        text: "把內部帳號路徑和客戶代號放進事件，讓下游好對。",
+        feedback: "對帳需要的是支付識別碼與狀態，不是另一份內部名單。"
+      }
+    ]
+  },
+  {
+    id: 4,
+    title: "切換",
+    prompt: "新舊消費者都能呼叫會扣款的第三方。你怎麼切？",
+    choices: [
+      {
+        type: "good",
+        set: ["cutover"],
+        text: "同一筆只有一個所有者。切之前寫好退回：新消費者停，所有權還給舊的。不明結果不由兩邊各判一次。",
+        feedback: "有副作用的呼叫不並行。退回路徑在放量之前就寫下來。"
+      },
+      {
+        type: "absorb",
+        text: "新舊一起消費，誰先成功算誰。",
+        feedback: "兩邊都可能去扣。事後對帳補不回已經扣出的第二次。"
+      },
+      {
+        type: "weak",
+        text: "先切百分之十，失敗再看。",
+        feedback: "百分之十裡的逾時仍然是不明結果。沒有所有權，比例只是縮小同一個問題。"
+      }
+    ]
+  },
+  {
+    id: 5,
+    title: "沉默",
+    prompt: "三十天裡，財務與風控要看風險。會上有人一直說沒問題，也不補充。",
+    choices: [
+      {
+        type: "good",
+        set: ["spoken"],
+        text: "把沉默當成還沒看到風險，不是同意。問進行中的扣款、對帳差異、誰可以喊停。檢查每週給財務、風控和值班看。",
+        feedback: "沒問題不是訊號。反對要有地方落地，不明結果要有人看得懂。"
+      },
+      {
+        type: "absorb",
+        text: "他最熟系統。沒說話就是沒風險，照計畫全量切。",
+        feedback: "熟悉被你聽成通過。缺口要等他以後自己說。"
+      },
+      {
+        type: "weak",
+        text: "會後私訊問一次還好嗎。",
+        feedback: "還好嗎、還好。這次私訊沒有問到任何一筆進行中的扣款。"
+      }
+    ]
+  }
+];
+
+bindFollows(shipLevels, {
+  1: [
+    dig("舊列沒有冪等鍵。必填欄位會怎樣？", [
+      line("good", "先停。沒有鍵的舊列會讓變更失敗，或擋住正在寫入的支付。", "必填被你從第一步拿掉了。", { set: ["invariants"] }),
+      line("absorb", "先上，失敗的列今晚再補。", "今晚補的時候，扣款還在進來。")
+    ]),
+    dig("第三方逾時了。這筆算失敗嗎？", [
+      line("good", "不算。逾時只代表不知道。重試沿用同一把冪等鍵。", "未知沒有被你判成失敗。",
+        dig("兩台機器同時看到這把鍵還不存在。誰可以去扣？", [
+          line("good", "資料庫用唯一約束或列鎖搶所有權。單機的 synchronized 鎖不住另一台。", "所有權在資料庫，不在某一台的記憶體。"),
+          line("weak", "在程式裡加 synchronized。", "鎖只活在一台機器裡。另一台仍會去扣。", { clear: ["invariants"] })
+        ])),
+      line("absorb", "當失敗，立刻用新的請求再扣一次。", "不知道結果的那一次，被你再送成第二筆。", { clear: ["invariants"] })
+    ]),
+    dig("圖再完整，第一筆正在處理的扣款誰負責？", [
+      line("good", "先寫約定，再談圖。進行中的扣款走對帳，不重扣。", "圖被你放回契約後面。", { set: ["invariants"] }),
+      line("weak", "上線當天再指定負責人。", "三十天的第一天仍然沒有主人。")
+    ])
+  ],
+  2: [
+    dig("補歷史補到一半失敗呢？", [
+      line("good", "補寫可以重跑。限制還不加，舊程式仍讀得動。", "失敗停在可重跑，沒有提前鎖死。",
+        dig("為什麼不在尖峰直接建唯一索引？", [
+          line("good", "一般建索引會擋住寫入。用並行建立，並限制等鎖時間。", "索引的做法被你和尖峰的寫入分開。"),
+          line("weak", "索引很小，鎖一下沒關係。", "小索引仍會等鎖。正在扣的寫入會排在後面。", { clear: ["expanded"] })
+        ])),
+      line("absorb", "失敗就加上必填，逼剩下的列一次補齊。", "補不完的列會被必填擋在寫入之外。", { clear: ["expanded"] })
+    ]),
+    dig("舊列是空的。必填通過嗎？", [
+      line("good", "不通過。先加可空欄，補完再限制。", "空值被你留在可空階段。", { set: ["expanded"] }),
+      line("absorb", "給空字串當預設，一樣算有值。", "空字串會變成假的識別碼，之後難以分辨補過沒有。")
+    ]),
+    dig("停機窗裡還有一筆已送出、結果還沒回來的扣款。", [
+      line("good", "不靠停機。擴欄期間讀寫都要認得新舊，這筆走對帳。", "停機沒有消去不明結果。", { set: ["expanded"] }),
+      line("weak", "停機前先把進行中的扣款標成失敗。", "還沒回來的結果被你先判死。")
+    ])
+  ],
+  3: [
+    dig("轉送程式送出後、標記已送之前當掉呢？", [
+      line("good", "會再送一次。消費端用同一把事件識別碼去掉重複。", "至少送達一次被你說成消費端的工作。",
+        dig("兩台應用同時處理同一筆。誰可以打第三方？", [
+          line("good", "資料庫先原子搶下這筆。搶到的才能打，搶輸的讀已有結果。", "外部副作用只有一個所有者。"),
+          line("absorb", "兩台都打，下游會處理重複。", "下游若沒有同一把鍵，兩次扣款都是真的。", { clear: ["outbox"] })
+        ])),
+      line("weak", "把佇列調成精確一次，消費端就不用管。", "佇列的精確一次包不住對第三方的那次呼叫。", { clear: ["outbox"] })
+    ]),
+    dig("資料庫已提交，佇列那次沒送成。", [
+      line("good", "這就是雙寫。改成同一筆交易留下待送事件。", "送失敗不再等於這筆從紀錄裡消失。", { set: ["outbox"] }),
+      line("absorb", "加一個每分鐘重試送佇列的背景工作，資料庫不用改。", "背景工作仍靠記得有哪些提交還沒送出。")
+    ]),
+    dig("事件裡的客戶代號，可以進別的系統或履歷嗎？", [
+      line("good", "不可以。事件只留支付識別碼與狀態。", "對帳資訊被你收成識別碼。"),
+      line("leak", "可以，對帳比較快。", "內部代號又被送到另一處。")
+    ])
+  ],
+  4: [
+    dig("舊工人的租約過期，新工人已接手。舊工人的請求這時回來了。", [
+      line("good", "舊工人拿過期代幣不能再打第三方，也不能覆寫新狀態。", "過期的工作者被你擋在副作用之外。",
+        dig("怎麼證明部分失敗時仍不會扣兩次？", [
+          line("good", "測逾時、重送、兩台同時搶、租約過期後舊工人回來。不只測成功路徑。", "證明的是失敗路徑，不是快樂路徑。"),
+          line("weak", "整合測試把成功扣款跑過就好。", "成功路徑沒有碰到你要防的那些競態。", { clear: ["cutover"] })
+        ])),
+      line("absorb", "把租約調長，這種情況就不會發生。", "再長的租約仍會被一次更長的停頓超過。", { clear: ["cutover"] })
+    ]),
+    dig("兩邊都認為自己該扣。你怎麼知道第三方收過幾次？", [
+      line("good", "事先不知道。所以不能並行。先定所有權，再允許一個消費者去扣。", "並行被你從方案裡拿掉。", { set: ["cutover"] }),
+      line("absorb", "對帳可以事後把多的退掉。", "退款補不回已經發生的第二次扣款體驗，也多一次外部副作用。")
+    ]),
+    dig("百分之十裡有一筆逾時。這百分之十繼續嗎？", [
+      line("good", "先停擴大。這筆走對帳，所有權不拆開。", "比例沒有蓋過不明結果。", { set: ["cutover"] }),
+      line("weak", "繼續放量，逾時比例還低。", "低比例裡的那一筆仍可能被扣兩次。")
+    ])
+  ],
+  5: [
+    dig("他說：講了也不會改，所以我先做。", [
+      line("good", "這是訊號。把可以喊停的條件寫進計畫，讓反對有地方落地。", "沉默被你聽成還沒被接住的反對。",
+        dig("檢查要給誰看？", [
+          line("good", "財務對帳、風控、值班都能看到未完成與不明結果，不只工程群。", "看風險的人包含會被扣款影響的部門。"),
+          line("weak", "工程內部看板就夠。", "財務與風控仍只聽得到沒問題。", { clear: ["spoken"] })
+        ])),
+      line("absorb", "那就讓他做完，三十天後再回顧。", "回顧排在全量切換之後。喊停沒有發生。", { clear: ["spoken"] })
+    ]),
+    dig("上週的不明扣款他沒有提。現在算誰的風險？", [
+      line("good", "算計畫的缺口。沒有回報就另開檢查，不把沉默當成通過。", "漏報被你收成檢查，不是個人品格問題。", { set: ["spoken"] }),
+      line("weak", "算他個人漏報，計畫不用改。", "計畫仍把沉默當成沒有風險。")
+    ]),
+    dig("私訊回覆：都好。你收得下嗎？", [
+      line("good", "不收。改問具體的進行中扣款與對帳差異。", "都好沒有被你當成檢查完成。", { set: ["spoken"] }),
+      line("weak", "收。他說都好就是都好。", "私訊停在同一句沒有內容的回答。")
+    ])
+  ]
+});
+
 const state = {
   mode: "story",
   lives: 3,
@@ -631,6 +842,11 @@ const state = {
   relay: false,
   ttl: false,
   direct: false,
+  invariants: false,
+  expanded: false,
+  outbox: false,
+  cutover: false,
+  spoken: false,
   index: 0,
   phase: "title",
   last: null,
@@ -641,12 +857,14 @@ const state = {
 function deck() {
   if (state.mode === "design") return designLevels;
   if (state.mode === "cache") return cacheLevels;
+  if (state.mode === "ship") return shipLevels;
   return storyLevels;
 }
 
 function mark() {
   if (state.mode === "design") return "四十五分";
   if (state.mode === "cache") return "快取";
+  if (state.mode === "ship") return "上線";
   return "九十秒";
 }
 
@@ -679,6 +897,10 @@ function endingKind() {
     if (state.aside && state.relay && state.ttl && state.direct) return "win";
     return "incomplete";
   }
+  if (state.mode === "ship") {
+    if (state.invariants && state.expanded && state.outbox && state.cutover && state.spoken) return "win";
+    return "incomplete";
+  }
   if (state.hasStory && state.held4 && state.held5) return "win";
   return "incomplete";
 }
@@ -695,12 +917,17 @@ const designOutline = "先收斂：做借還與逾期提醒，不做跨館即時
 
 const cacheOutline = "閱讀數用旁路快取：資料庫提交後刪除，不在寫入時更新快取。刪除失敗不靠每個業務點重試，而靠提交後的日誌變更；消費者只刪除，可以重複做。未命中讀主庫。每把鍵有過期時間，只作為最終一致的底線。餘額不進快取，用資料庫的鎖或版本。";
 
+const shipOutline = "舊支付還在扣款時，先寫不能打破的約定：一筆只對一個識別碼，重試不再扣，逾時走對帳。改表先加可空欄、同時讀新舊、補歷史、再加限制，索引用並行建立。同步用同一筆交易的待送事件，消費端去掉重複。切換時一筆只有一個所有者，並先寫退回。會上的沒問題不是同意，檢查要給財務、風控和值班看。";
+
 function endingCopy(kind) {
   if (kind === "win" && state.mode === "design") {
     return ["可帶走", "下面這段按五步講。題目是圖書館借還，不帶任何既有產品。"];
   }
   if (kind === "win" && state.mode === "cache") {
     return ["可帶走", "下面這段按一致性分層講。閱讀數可以舊一下，餘額不行。"];
+  }
+  if (kind === "win" && state.mode === "ship") {
+    return ["可帶走", "下面這段按上線順序講。舊支付還在扣款，不能停，也不能扣兩次。"];
   }
   if (kind === "win") {
     return ["可帶走", "下面這則講稿可以進面試。產品內容留在原處。"];
@@ -715,6 +942,9 @@ function endingCopy(kind) {
   }
   if (state.mode === "cache") {
     return ["流程走完", "四問走完了。缺的判斷寫在下面。"];
+  }
+  if (state.mode === "ship") {
+    return ["流程走完", "五問走完了。缺的上線判斷寫在下面。"];
   }
   return ["流程走完", "五關都結束了。缺的項目寫在下面，下一輪補上那一項即可。"];
 }
@@ -737,6 +967,15 @@ function gaps() {
     if (!state.direct) items.push("缺邊界：餘額留在資料庫，不進快取。");
     return items;
   }
+  if (state.mode === "ship") {
+    const items = [];
+    if (!state.invariants) items.push("缺約定：一筆只對一個識別碼，重試不再扣，逾時走對帳。");
+    if (!state.expanded) items.push("缺擴欄：先可空、再補歷史、再限制。索引不要在尖峰擋住寫入。");
+    if (!state.outbox) items.push("缺待送事件：同一筆交易留下事件，消費端去掉重複。");
+    if (!state.cutover) items.push("缺切換：一筆只有一個所有者，並先寫退回。");
+    if (!state.spoken) items.push("缺沉默：沒問題不是同意。檢查要給財務、風控和值班看。");
+    return items;
+  }
   const items = [];
   if (!state.hasStory) items.push("缺遷移故事：關卡 1 要留下分階段與回歸範圍。");
   else if (!state.held4) items.push("故事留過，但面試沒有只用那些事實。");
@@ -753,6 +992,10 @@ function takeawayHtml() {
   const cacheWin = state.aside && state.relay && state.ttl && state.direct;
   if (state.mode === "cache" && cacheWin) {
     blocks.push(`<h2>快取一致性口訣</h2><p class="script" id="script">${cacheOutline}</p><button id="copy">複製口訣</button>`);
+  }
+  const shipWin = state.invariants && state.expanded && state.outbox && state.cutover && state.spoken;
+  if (state.mode === "ship" && shipWin) {
+    blocks.push(`<h2>上線順序</h2><p class="script" id="script">${shipOutline}</p><button id="copy">複製順序</button>`);
   }
   if (state.mode === "story" && state.hasStory && state.held4) {
     blocks.push(`<h2>九十秒講稿</h2><p class="script" id="script">${storyScript}</p><button id="copy">複製講稿</button>`);
@@ -782,18 +1025,21 @@ function render() {
           <button class="primary" id="start">九十秒：職場與故事</button>
           <button id="design">四十五分：系統設計</button>
           <button id="cache">快取：雙寫一致性</button>
+          <button id="ship">上線：不停機更換</button>
           <button id="ai">AI 面試：出題、檢核、再追問</button>
         </div>
         <ul class="rules">
           <li>九十秒：分階段遷移、留下交接、規格不到位就不承諾日期。通關要有故事、面試界線、反問界線。</li>
           <li>四十五分：先問範圍與量級，再畫一條路徑，最後講為什麼現在不堆架構。題目是圖書館借還。</li>
           <li>快取：提交後刪除，用日誌變更重試，未命中讀主庫，過期兜底。餘額不進快取。</li>
+          <li>上線：先寫不能扣錯的約定，再擴欄、待送事件、單一所有者。會上的沒問題不是同意。</li>
           <li>每一題答完會再追問。守住的回答再挖一層，含糊或失守停在一層。下一題由上一題的回答決定。</li>
         </ul>
       </article>`;
     document.getElementById("start").onclick = () => begin("story");
     document.getElementById("design").onclick = () => begin("design");
     document.getElementById("cache").onclick = () => begin("cache");
+    document.getElementById("ship").onclick = () => begin("ship");
     document.getElementById("ai").onclick = () => startAi();
     return;
   }
@@ -817,7 +1063,7 @@ function render() {
     if (copy) {
       copy.onclick = async () => {
         try {
-          const text = state.mode === "design" ? designOutline : state.mode === "cache" ? cacheOutline : storyScript;
+          const text = state.mode === "design" ? designOutline : state.mode === "cache" ? cacheOutline : state.mode === "ship" ? shipOutline : storyScript;
         await navigator.clipboard.writeText(text);
           copy.textContent = "已複製";
         } catch (error) {
@@ -928,6 +1174,11 @@ function begin(mode) {
     relay: false,
     ttl: false,
     direct: false,
+    invariants: false,
+    expanded: false,
+    outbox: false,
+    cutover: false,
+    spoken: false,
     index: 0,
     depth: 0,
     beat: null,
